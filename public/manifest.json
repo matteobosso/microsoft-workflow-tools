@@ -1,0 +1,74 @@
+{
+   "name": "Microsoft Workflow Tools",
+   "description": "Edit Power Automate and Copilot Studio workflow definitions as JSON.",
+   "version": "1.0",
+   "manifest_version": 3,
+   "icons": {
+      "512": "icons/pa-tools-512.png",
+      "256": "icons/pa-tools-256.png",
+      "128": "icons/pa-tools-128.png",
+      "48": "icons/pa-tools-48.png"
+   },
+   "permissions": [
+      "activeTab",
+      "webRequest",
+      "tabs",
+      "storage",
+      "sidePanel"
+   ],
+   "host_permissions": [
+      "*://*.flow.microsoft.com/",
+      "*://*.make.powerautomate.com/",
+      "*://*.make.powerapps.com/",
+      "*://*.api.powerplatform.com/",
+      "*://copilotstudio.microsoft.com/",
+      "*://*.dynamics.com/*"
+   ],
+   "action": {
+      "default_title": "Microsoft Workflow Tools",
+      "default_icon": {
+         "48": "icons/pa-tools-48.png",
+         "128": "icons/pa-tools-128.png"
+      }
+   },
+   "content_scripts": [
+      {
+         "matches": [
+            "*://*.make.powerautomate.com/*",
+            "*://copilotstudio.microsoft.com/*",
+            "*://*.flow.microsoft.com/*",
+            "*://*.make.powerapps.com/*"
+         ],
+         "js": ["interceptor.js"],
+         "run_at": "document_start",
+         "world": "MAIN"
+      },
+      {
+         "matches": [
+            "*://*.make.powerautomate.com/*",
+            "*://copilotstudio.microsoft.com/*",
+            "*://*.flow.microsoft.com/*",
+            "*://*.make.powerapps.com/*"
+         ],
+         "js": ["content.js"],
+         "run_at": "document_idle"
+      }
+   ],
+   "web_accessible_resources": [
+      {
+         "resources": ["app.html", "app.js", "app.js.map", "*.js", "*.worker.js"],
+         "matches": [
+            "*://*.make.powerautomate.com/*",
+            "*://copilotstudio.microsoft.com/*",
+            "*://*.flow.microsoft.com/*",
+            "*://*.make.powerapps.com/*"
+         ]
+      }
+   ],
+   "side_panel": {
+      "default_path": "app.html"
+   },
+   "background": {
+      "service_worker": "background.js"
+   }
+}

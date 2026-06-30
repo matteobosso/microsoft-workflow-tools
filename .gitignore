@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.pem
+*.crx
+*.zip
+.DS_Store
+Thumbs.db
+.claude/
+CLAUDE.md
+AGENTS.md
