@@ -1,7 +1,7 @@
 {
    "name": "Microsoft Workflow Tools",
    "description": "Edit Power Automate and Copilot Studio workflow definitions as JSON.",
-   "version": "1.0",
+   "version": "2.0",
    "manifest_version": 3,
    "icons": {
       "512": "icons/pa-tools-512.png",
@@ -34,10 +34,8 @@
    "content_scripts": [
       {
          "matches": [
-            "*://*.make.powerautomate.com/*",
             "*://copilotstudio.microsoft.com/*",
-            "*://*.flow.microsoft.com/*",
-            "*://*.make.powerapps.com/*"
+            "*://*.flow.microsoft.com/*"
          ],
          "js": ["interceptor.js"],
          "run_at": "document_start",
@@ -45,12 +43,27 @@
       },
       {
          "matches": [
-            "*://*.make.powerautomate.com/*",
             "*://copilotstudio.microsoft.com/*",
-            "*://*.flow.microsoft.com/*",
-            "*://*.make.powerapps.com/*"
+            "*://*.flow.microsoft.com/*"
          ],
          "js": ["content.js"],
+         "run_at": "document_idle"
+      },
+      {
+         "matches": [
+            "*://*.make.powerautomate.com/*",
+            "*://*.make.powerapps.com/*"
+         ],
+         "js": ["interceptorPaV3.js"],
+         "run_at": "document_start",
+         "world": "MAIN"
+      },
+      {
+         "matches": [
+            "*://*.make.powerautomate.com/*",
+            "*://*.make.powerapps.com/*"
+         ],
+         "js": ["contentPaV3.js"],
          "run_at": "document_idle"
       }
    ],
