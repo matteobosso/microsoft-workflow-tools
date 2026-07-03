@@ -1,4 +1,5 @@
 import { Actions } from "./shared/messages/backgroundActions";
+import { mwtLog, mwtWarn } from "./shared/debug";
 
 const sidePanel = (chrome as any).sidePanel as {
   setOptions(opts: { tabId?: number; path?: string; enabled?: boolean }, cb?: () => void): void;
@@ -137,7 +138,7 @@ async function handleApiRequest(action: { method: string; url: string; body?: an
 
   const isSavePatch = action.method === 'PATCH' && /\/workflows\(/i.test(fetchUrl);
   if (isSavePatch) {
-    console.log('[MWT_SAVE_EXTENSION] save-patch-start', { url: fetchUrl, method: action.method });
+    mwtLog('[MWT_SAVE_EXTENSION] save-patch-start', { url: fetchUrl, method: action.method });
   }
 
   try {
@@ -156,13 +157,13 @@ async function handleApiRequest(action: { method: string; url: string; body?: an
     const data = text ? JSON.parse(text) : null;
     if (r.ok) {
       if (isSavePatch) {
-        console.log('[MWT_SAVE_EXTENSION] save-patch-response-ok', { status: r.status });
+        mwtLog('[MWT_SAVE_EXTENSION] save-patch-response-ok', { status: r.status });
       }
       return { ok: true, data };
     }
     const errMsg = data?.error?.message ?? data?.Message ?? `[${r.status}] ${r.statusText}`;
     if (isSavePatch) {
-      console.warn('[MWT_SAVE_EXTENSION] save-patch-response-error', { status: r.status, errMsg });
+      mwtWarn('[MWT_SAVE_EXTENSION] save-patch-response-error', { status: r.status, errMsg });
     }
     return { ok: false, error: errMsg };
   } catch (e: any) {

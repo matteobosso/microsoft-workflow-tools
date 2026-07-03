@@ -1,6 +1,7 @@
 import { Actions } from "./shared/messages/backgroundActions";
 import { startCanvasSkeleton, stopCanvasSkeleton } from "./utils/canvasNativeSkeleton";
 import { WORKFLOW_SELECTORS } from "./utils/selectors";
+import { mwtLog, mwtWarn } from "./shared/debug";
 
 // ── Icons ─────────────────────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ const DOCK_JITTER_THRESHOLD = 4;
 
 // ── Code View lifecycle state ──────────────────────────────────────────────
 
-type CodeViewSource = 'workflow-clientdata' | 'current-draft' | 'latest-server-side' | 'published-live' | 'unknown';
+type CodeViewSource = 'workflow-clientdata' | 'current-draft' | 'latest-server-side' | 'published-live' | 'live-store' | 'unknown';
 
 interface CodeViewState {
   isOpen: boolean;
@@ -41,7 +42,7 @@ let codeViewState: CodeViewState = {
 // ── Lifecycle logging ──────────────────────────────────────────────────────
 
 function logCodeViewLifecycle(event: string, extra: Record<string, unknown> = {}): void {
-  console.log('[CodeViewLifecycle]', {
+  mwtLog('[CodeViewLifecycle]', {
     event,
     codeViewOpen: codeViewState.isOpen,
     codeViewOpening: codeViewState.isOpening,
@@ -259,7 +260,7 @@ function applyCodeViewNativePanelLayout(): void {
   panel.style.boxSizing = 'border-box';
   panel.style.zIndex = '100';
 
-  console.log('[MWT_CODEVIEW_LAYOUT]', { event: 'applied', position: 'absolute', top: 27, right: 20, bottom: 20, width: 400 });
+  mwtLog('[MWT_CODEVIEW_LAYOUT]', { event: 'applied', position: 'absolute', top: 27, right: 20, bottom: 20, width: 400 });
 }
 
 // ── Embedded panel ────────────────────────────────────────────────────────
@@ -734,7 +735,7 @@ function sendApplyToCanvasMainWorld(graph: unknown): Promise<unknown> {
       }
     }
 
-    console.log('[MWT_APPLY_TO_CANVAS_BRIDGE]', {
+    mwtLog('[MWT_APPLY_TO_CANVAS_BRIDGE]', {
       event: 'request-sent',
       requestId,
       nodeCount: (graph as any)?.nodes?.length,
@@ -743,6 +744,55 @@ function sendApplyToCanvasMainWorld(graph: unknown): Promise<unknown> {
 
     window.addEventListener('message', onMessage);
     window.postMessage({ type: 'MWT_APPLY_TO_CANVAS_REQUEST', requestId, graph }, '*');
+  });
+}
+
+// ── Copilot Studio live store bridge (isolated → MAIN world) ─────────────────
+// Store-based Code View path: load/apply go through the live in-page clientdata
+// resolved by interceptor.ts. Host branch is absolute — the store path only runs
+// on copilotstudio.microsoft.com; it never falls back to the API/token path.
+
+function isCopilotStudioHost(): boolean {
+  return window.location.hostname.toLowerCase().includes('copilotstudio.microsoft.com');
+}
+
+function sendCsStoreMainWorld(
+  requestType: 'MWT_CS_STORE_GET_REQUEST' | 'MWT_CS_STORE_APPLY_REQUEST',
+  responseType: 'MWT_CS_STORE_GET_RESPONSE' | 'MWT_CS_STORE_APPLY_RESPONSE',
+  extra: Record<string, unknown>,
+  timeoutMs: number
+): Promise<unknown> {
+  return new Promise<unknown>((resolve, reject) => {
+    if (!isCopilotStudioHost()) {
+      reject(new Error(
+        'The Copilot Studio live store path is only available on copilotstudio.microsoft.com.'
+      ));
+      return;
+    }
+
+    const requestId = Math.random().toString(36).slice(2) + Date.now();
+    const timeoutHandle = window.setTimeout(() => {
+      window.removeEventListener('message', onMessage);
+      reject(new Error(
+        'Unable to access Copilot Studio live workflow state. Make sure the workflow designer is open and fully loaded.'
+      ));
+    }, timeoutMs);
+
+    function onMessage(event: MessageEvent): void {
+      if (event.source !== window) return;
+      if (event.data?.type !== responseType) return;
+      if (event.data?.requestId !== requestId) return;
+      window.clearTimeout(timeoutHandle);
+      window.removeEventListener('message', onMessage);
+      if (event.data.success) {
+        resolve(event.data.payload ?? event.data.result);
+      } else {
+        reject(new Error(event.data.error ?? 'Copilot Studio live store request failed'));
+      }
+    }
+
+    window.addEventListener('message', onMessage);
+    window.postMessage({ type: requestType, requestId, ...extra }, '*');
   });
 }
 
@@ -842,7 +892,7 @@ async function waitUntilNativeNodePanelClosed(timeoutMs = 800): Promise<boolean>
     }
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
   }
-  console.warn('[CodeViewLifecycle] node-panel-close-timeout — proceeding anyway');
+  mwtWarn('[CodeViewLifecycle] node-panel-close-timeout — proceeding anyway');
   return false;
 }
 
@@ -1190,12 +1240,40 @@ window.addEventListener("message", (e: MessageEvent) => {
       break;
     }
 
+    case 'cs-store-get': {
+      const requestId = e.data.requestId;
+      void sendCsStoreMainWorld('MWT_CS_STORE_GET_REQUEST', 'MWT_CS_STORE_GET_RESPONSE', {}, 12000).then(
+        (payload) => {
+          sendMessageToPanel({ type: 'panel-action', action: 'cs-store-get-result', requestId, success: true, payload });
+        },
+        (err: Error) => {
+          console.error('[MWT_CS_STORE_BRIDGE]', { event: 'get-failed', requestId, error: err.message });
+          sendMessageToPanel({ type: 'panel-action', action: 'cs-store-get-result', requestId, success: false, error: err.message });
+        }
+      );
+      break;
+    }
+
+    case 'cs-store-apply': {
+      const requestId = e.data.requestId;
+      void sendCsStoreMainWorld('MWT_CS_STORE_APPLY_REQUEST', 'MWT_CS_STORE_APPLY_RESPONSE', { payload: e.data.payload }, 20000).then(
+        (result) => {
+          sendMessageToPanel({ type: 'panel-action', action: 'cs-store-apply-result', requestId, success: true, result });
+        },
+        (err: Error) => {
+          console.error('[MWT_CS_STORE_BRIDGE]', { event: 'apply-failed', requestId, error: err.message });
+          sendMessageToPanel({ type: 'panel-action', action: 'cs-store-apply-result', requestId, success: false, error: err.message });
+        }
+      );
+      break;
+    }
+
     case 'apply-to-canvas': {
       const requestId = e.data.requestId;
       const graph = e.data.graph;
       void sendApplyToCanvasMainWorld(graph).then(
         (_result) => {
-          console.log('[MWT_APPLY_TO_CANVAS_BRIDGE]', { event: 'response-received', requestId, success: true });
+          mwtLog('[MWT_APPLY_TO_CANVAS_BRIDGE]', { event: 'response-received', requestId, success: true });
           sendMessageToPanel({ type: 'panel-action', action: 'canvas-apply-result', requestId, success: true });
         },
         (err: Error) => {

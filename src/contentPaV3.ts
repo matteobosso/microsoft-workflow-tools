@@ -24,6 +24,7 @@ import {
   PA_V3_STYLE_TAG_ID,
   PaV3EditorPayload,
 } from './pa-v3/types';
+import { mwtLog } from './shared/debug';
 
 // Worker resolution must be set before any Monaco worker is requested. Workers are emitted
 // by MonacoWebpackPlugin into dist/ alongside contentPaV3.js and are web-accessible
@@ -1444,7 +1445,7 @@ async function handleOutsidePaV3CodeViewInteraction(event: PointerEvent): Promis
 
   if (!isDirty) {
     togglePowerAutomateV3CodeViewPanel(false);
-    console.log('[MWT_PA_V3_CONTENT]', { event: 'panel-closed', reason: 'outside-interaction-clean' });
+    mwtLog('[MWT_PA_V3_CONTENT]', { event: 'panel-closed', reason: 'outside-interaction-clean' });
     return;
   }
 
@@ -1459,7 +1460,7 @@ async function handleOutsidePaV3CodeViewInteraction(event: PointerEvent): Promis
 
   if (decision === 'keep-editing') {
     blockNextClickDuringPaV3Dialog = false;
-    console.log('[MWT_PA_V3_CONTENT]', { event: 'outside-interaction-kept-editing' });
+    mwtLog('[MWT_PA_V3_CONTENT]', { event: 'outside-interaction-kept-editing' });
     return;
   }
 
@@ -1468,7 +1469,7 @@ async function handleOutsidePaV3CodeViewInteraction(event: PointerEvent): Promis
     // handleApply only clears the dirty flag once the store readback confirmed the write —
     // if it's still dirty the apply failed (error already shown); keep the panel open.
     if (isDirty) {
-      console.log('[MWT_PA_V3_CONTENT]', { event: 'outside-interaction-apply-failed' });
+      mwtLog('[MWT_PA_V3_CONTENT]', { event: 'outside-interaction-apply-failed' });
       return;
     }
   } else if (originalPayload) {
@@ -1479,7 +1480,7 @@ async function handleOutsidePaV3CodeViewInteraction(event: PointerEvent): Promis
   }
 
   togglePowerAutomateV3CodeViewPanel(false);
-  console.log('[MWT_PA_V3_CONTENT]', { event: 'panel-closed', reason: 'outside-interaction-after-decision', decision });
+  mwtLog('[MWT_PA_V3_CONTENT]', { event: 'panel-closed', reason: 'outside-interaction-after-decision', decision });
 
   // Replay the originally-intended interaction so the user's click isn't swallowed.
   if (originalTarget) {
@@ -1539,7 +1540,7 @@ function injectPowerAutomateV3CodeViewButton(): boolean {
   });
 
   controls.appendChild(button);
-  console.log('[MWT_PA_V3_CONTENT]', { event: 'button-injected', controlsClass: controls.className });
+  mwtLog('[MWT_PA_V3_CONTENT]', { event: 'button-injected', controlsClass: controls.className });
   return true;
 }
 
@@ -1565,7 +1566,7 @@ let lastLoggedState: DetectionState | null = null;
 function logDetectionState(state: DetectionState, extra?: Record<string, unknown>): void {
   if (state === lastLoggedState) return;
   lastLoggedState = state;
-  console.log('[MWT_PA_V3_CONTENT]', { event: 'detection-state', state, href: window.location.href, ...extra });
+  mwtLog('[MWT_PA_V3_CONTENT]', { event: 'detection-state', state, href: window.location.href, ...extra });
 }
 
 async function tick(): Promise<void> {

@@ -8,6 +8,8 @@
 // React Fiber and perform the confirmed Apply-to-canvas mechanism (setFlowData +
 // setIsFlowDirty). No Dataverse/PATCH fallback — if the store cannot be found, callers get
 // a hard error and must stop (see findPowerAutomateV3DesignerHostContextStore).
+import { mwtLog, mwtWarn } from './shared/debug';
+
 (function () {
 
   // ── Designer host context store shape ─────────────────────────────────────
@@ -110,13 +112,13 @@
   function findPowerAutomateV3DesignerHostContextStoreOnce(): DesignerHostContextStore | null {
     const anchor = findFiberAnchorElement();
     if (!anchor) {
-      console.warn('[MWT_PA_V3_BRIDGE]', { event: 'no-fiber-anchor-found' });
+      mwtWarn('[MWT_PA_V3_BRIDGE]', { event: 'no-fiber-anchor-found' });
       return null;
     }
 
     const root = getFiberRoot();
     if (!root) {
-      console.warn('[MWT_PA_V3_BRIDGE]', { event: 'no-fiber-root', anchorTag: anchor.tagName, anchorClass: (anchor as HTMLElement).className });
+      mwtWarn('[MWT_PA_V3_BRIDGE]', { event: 'no-fiber-root', anchorTag: anchor.tagName, anchorClass: (anchor as HTMLElement).className });
       return null;
     }
 
@@ -137,7 +139,7 @@
         const value = (props as Record<string, unknown>).value;
         const found = deepFindStore(value, 0, new Set());
         if (found) {
-          console.log('[MWT_PA_V3_BRIDGE]', { event: 'store-found', fibersVisited: visited });
+          mwtLog('[MWT_PA_V3_BRIDGE]', { event: 'store-found', fibersVisited: visited });
           return found;
         }
       }
@@ -146,7 +148,7 @@
       if (fiber.sibling) stack.push(fiber.sibling);
     }
 
-    console.warn('[MWT_PA_V3_BRIDGE]', { event: 'store-not-found-after-walk', fibersVisited: visited });
+    mwtWarn('[MWT_PA_V3_BRIDGE]', { event: 'store-not-found-after-walk', fibersVisited: visited });
     return null;
   }
 
@@ -406,13 +408,13 @@
   async function ensurePA3CanvasReflectsDefinition(definition: any): Promise<boolean> {
     const alreadyReflected = await waitForPA3CanvasToReflectDefinition(definition, { timeoutMs: 1200 });
     if (alreadyReflected) {
-      console.log('[MWT_PA_V3_BRIDGE]', { event: 'canvas-reflected-without-kick' });
+      mwtLog('[MWT_PA_V3_BRIDGE]', { event: 'canvas-reflected-without-kick' });
       return true;
     }
 
     const hooks = findPA3ReactFlowParentHooks();
     if (!hooks.nodeHook || !hooks.edgeHook) {
-      console.warn('[MWT_PA_V3_BRIDGE]', {
+      mwtWarn('[MWT_PA_V3_BRIDGE]', {
         event: 'visual-kick-hooks-not-found',
         nodeHookFound: Boolean(hooks.nodeHook),
         edgeHookFound: Boolean(hooks.edgeHook),
@@ -421,12 +423,12 @@
     }
 
     const kick = buildPA3VisualKickFromDefinition(definition);
-    console.log('[MWT_PA_V3_BRIDGE]', { event: 'visual-kick-dispatch', nodeCount: kick.nodes.length, edgeCount: kick.edges.length });
+    mwtLog('[MWT_PA_V3_BRIDGE]', { event: 'visual-kick-dispatch', nodeCount: kick.nodes.length, edgeCount: kick.edges.length });
     hooks.nodeHook.queue.dispatch(kick.nodes);
     hooks.edgeHook.queue.dispatch(kick.edges);
 
     const reflectedAfterKick = await waitForPA3CanvasToReflectDefinition(definition, { timeoutMs: 1500 });
-    console.log('[MWT_PA_V3_BRIDGE]', { event: 'visual-kick-result', reflected: reflectedAfterKick });
+    mwtLog('[MWT_PA_V3_BRIDGE]', { event: 'visual-kick-result', reflected: reflectedAfterKick });
     return reflectedAfterKick;
   }
 
@@ -460,7 +462,7 @@
       nextWorkflowData.connectionReferences = structuredClone(payload.connectionReferences);
     }
 
-    console.log('[MWT_PA_V3_BRIDGE]', { event: 'setFlowData-call' });
+    mwtLog('[MWT_PA_V3_BRIDGE]', { event: 'setFlowData-call' });
 
     // flowWorkflowData is MobX-observable state on this store. Assigning to it directly
     // (`store.flowWorkflowData = nextWorkflowData`) bypasses MobX's action/setter machinery
@@ -473,7 +475,7 @@
     if (typeof store.setFlowWorkflowData === 'function') {
       store.setFlowWorkflowData(nextWorkflowData);
     } else {
-      console.log('[MWT_PA_V3_BRIDGE]', {
+      mwtLog('[MWT_PA_V3_BRIDGE]', {
         event: 'no-setFlowWorkflowData-setter',
         message: 'Skipping direct flowWorkflowData mutation; setFlowData is the source of truth for canvas update.',
       });
@@ -489,7 +491,7 @@
     // would need DOM introspection this bridge doesn't do); it verifies the data layer only.
     const afterDefinition: any = store.flowWorkflowData?.definition;
 
-    console.info('[MWT_PA_V3_BRIDGE]', {
+    mwtLog('[MWT_PA_V3_BRIDGE]', {
       event: 'apply-readback',
       actionNames: Object.keys(afterDefinition?.actions ?? {}),
     });
@@ -500,7 +502,7 @@
       expectedActionNames.size === actualActionNames.size &&
       [...expectedActionNames].every(name => actualActionNames.has(name));
 
-    console.log('[MWT_PA_V3_BRIDGE]', { event: 'apply-completed', readbackVerified });
+    mwtLog('[MWT_PA_V3_BRIDGE]', { event: 'apply-completed', readbackVerified });
 
     // Data-layer readback above only confirms the store accepted the model. This confirms the
     // ReactFlow-controlled canvas actually reflects it — falling back to a provisional
@@ -553,6 +555,6 @@
     getFiberRoot,
   };
 
-  console.log('[MWT_PA_V3_BRIDGE]', { event: 'installed' });
+  mwtLog('[MWT_PA_V3_BRIDGE]', { event: 'installed' });
 
 })();

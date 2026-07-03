@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { useEffect, useMemo, useRef } from 'react';
 import { useEditor } from './useEditor';
 import { NodePanelShell } from './NodePanelShell';
+import { mwtLog } from '../shared/debug';
 
 export const EditorPage: React.FC = () => {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -34,10 +35,10 @@ export const EditorPage: React.FC = () => {
       const success = await applyToCanvas(editor.getValue());
       if (success) {
         reportDirty(false);
-        console.log('[MWT_APPLY_EXTENSION] apply-completed-dispatched', { success: true });
+        mwtLog('[MWT_APPLY_EXTENSION] apply-completed-dispatched', { success: true });
         window.parent.postMessage({ type: 'mwt-panel-action', action: 'apply-completed', success: true }, '*');
       } else {
-        console.log('[MWT_APPLY_EXTENSION] apply-completed-dispatched', { success: false });
+        mwtLog('[MWT_APPLY_EXTENSION] apply-completed-dispatched', { success: false });
         window.parent.postMessage({ type: 'mwt-panel-action', action: 'apply-completed', success: false }, '*');
       }
     },
@@ -66,7 +67,7 @@ export const EditorPage: React.FC = () => {
       } else if (e.data.action === 'validate') {
         handleValidateRef.current();
       } else if (e.data.action === 'refetch' || e.data.action === 'background-refetch') {
-        console.log('[CodeViewLifecycle] refetch-started-in-iframe', { action: e.data.action });
+        mwtLog('[CodeViewLifecycle] refetch-started-in-iframe', { action: e.data.action });
         const result = await triggerRefetchRef.current();
         if (result) {
           const editor = editorRef.current;
@@ -83,7 +84,7 @@ export const EditorPage: React.FC = () => {
               definitionHash: result.definitionHash,
             },
           }, '*');
-          console.log('[CodeViewLifecycle] refetch-completed-in-iframe', {
+          mwtLog('[CodeViewLifecycle] refetch-completed-in-iframe', {
             source: result.source,
             definitionHash: result.definitionHash,
           });

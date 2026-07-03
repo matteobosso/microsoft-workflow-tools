@@ -67,7 +67,10 @@ function App() {
             }}
           >
             <Stack.Item grow styles={{ root: { minHeight: 0, display: 'flex', flexDirection: 'column' } }}>
-              {apiProviderRoot.isApiReady ? (
+              {/* Embedded Code View loads from the live in-page store — no token
+                  needed, so don't gate it on isApiReady. The API/token gate only
+                  applies to the standalone (side panel) mode. */}
+              {(isEmbedded || apiProviderRoot.isApiReady) ? (
                 <Routes>
                   <Route path="/">
                     <Route index element={<EditorPage />} />
