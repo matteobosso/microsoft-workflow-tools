@@ -4,12 +4,17 @@
 
 A Chrome/Edge extension (Manifest V3) that lets you view and edit workflow
 definitions as JSON, directly in the browser, using an embedded Monaco editor.
-It supports two hosts, each with its own fully isolated implementation:
+It supports two independent canvas implementations, each fully isolated from
+the other:
 
 - **Copilot Studio workflows** — the agentic canvas released in 2026
   (`copilotstudio.microsoft.com`).
-- **Power Automate v3 Flow Designer** — the ReactFlow-based designer on
-  `make.powerautomate.com` / `make.powerapps.com`.
+- **Power Automate v3 Flow Designer** — the ReactFlow-based designer, on
+  `make.powerautomate.com` / `make.powerapps.com`, and embedded verbatim
+  inside Copilot Studio's own **classic** flow canvas
+  (`copilotstudio.microsoft.com`). Both surfaces run the identical designer
+  component and are handled by the same code path, detected at runtime by
+  canvas markup and live store shape rather than by URL — see v3.0 below.
 
 ## How it works
 
@@ -111,6 +116,21 @@ the designer's own native **Save draft** button.
   Microsoft's terms of service.
 
 ## Change Log
+
+### v3.0 — Copilot Studio classic canvas compatibility
+
+- The Power Automate v3 Code View (bottom-left canvas controls, embedded Monaco panel,
+  `setFlowData`/`setIsFlowDirty` apply mechanism) now also activates on Copilot Studio's
+  **classic** flow canvas (`copilotstudio.microsoft.com`), which embeds the identical
+  react-flow-based v3 designer component and the same `designerHostContextStore` shape —
+  confirmed live via the same React Fiber walk used on Power Automate.
+- Activation is now gated purely on the live canvas (controls container present in the DOM,
+  then the native store found via Fiber), not on a URL route regex — the classic Copilot
+  Studio canvas shares no fixed path segment with `make.powerautomate.com`. Removed the old
+  `/flows/`-based route check accordingly.
+- No change to the new agentic Copilot Studio canvas (`content.ts`/`interceptor.ts`): it
+  self-gates on its own Fluent v9 toolbar markup and continues to run side by side, fully
+  isolated, with no shared code or DOM/message namespace.
 
 ### v2.2 — Copilot Studio native graph bridge hardening
 

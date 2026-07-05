@@ -1,12 +1,17 @@
-// Runs in ISOLATED world at document_idle, on make.powerautomate.com / make.powerapps.com
-// only (see manifest.json). Fully parallel to content.ts: separate file, separate bundle,
-// own DOM ids/classes (mwt-pa-v3-*), own message namespace (MWT_PA_V3_*). Does not import
-// from, call into, or share module state with content.ts / interceptor.ts.
+// Runs in ISOLATED world at document_idle, on make.powerautomate.com / make.powerapps.com /
+// copilotstudio.microsoft.com (see manifest.json) — the classic Copilot Studio flow canvas
+// embeds the same react-flow-based v3 designer component as Power Automate. Fully parallel to
+// content.ts: separate file, separate bundle, own DOM ids/classes (mwt-pa-v3-*), own message
+// namespace (MWT_PA_V3_*). Does not import from, call into, or share module state with
+// content.ts / interceptor.ts; on copilotstudio.microsoft.com both this script and content.ts
+// run side by side, each self-gating on its own canvas markup.
 //
-// Never initializes unless a Flow Designer v3 route is detected AND the native
-// designerHostContextStore can be found through React Fiber (see interceptorPaV3.ts).
-// There is no silent PATCH/reload fallback for Apply to canvas — if the store can't be
-// found, the user gets a hard error message and nothing is written.
+// Never initializes unless the v3 canvas controls are present in the DOM AND the native
+// designerHostContextStore can be found through React Fiber (see interceptorPaV3.ts) — no URL
+// route pattern is assumed, since Copilot Studio's classic canvas URL shares no fixed path
+// segment with Power Automate's. There is no silent PATCH/reload fallback for Apply to
+// canvas — if the store can't be found, the user gets a hard error message and nothing is
+// written.
 
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 // editor.api is core-only: without the JSON language contribution the 'json' model silently
@@ -37,20 +42,25 @@ import { mwtLog } from './shared/debug';
 };
 
 // ── Host / route detection ─────────────────────────────────────────────────
-
+// Activation is gated on the actual canvas (findControlsContainer() + probeDesignerStore()),
+// not on a URL route regex: the classic Power Automate v3 designer component is also embedded
+// verbatim inside Copilot Studio's "classic" flow canvas, under URLs that share no fixed path
+// segment with make.powerautomate.com/make.powerapps.com (confirmed live: same
+// designerHostContextStore shape — flowData/flowWorkflowData/setFlowData/setIsFlowDirty —
+// found via the same React Fiber walk on copilotstudio.microsoft.com). The host allow-list
+// below only bounds where this content script's polling loop is allowed to run at all.
 function isPowerPlatformMakerHost(): boolean {
   const host = window.location.hostname;
-  return host.includes('make.powerautomate.com') || host.includes('make.powerapps.com');
+  return (
+    host.includes('make.powerautomate.com') ||
+    host.includes('make.powerapps.com') ||
+    host.includes('copilotstudio.microsoft.com')
+  );
 }
 
-function looksLikeFlowDesignerRoute(): boolean {
-  return window.location.pathname.includes('/flows/');
-}
-
-// A run-review URL (.../flows/{id}/runs/{runId}) also contains "/flows/", so
-// looksLikeFlowDesignerRoute() alone can't distinguish it from the editable designer route —
-// Code View must never be injected there since there is no live editable canvas/store on a
-// run page.
+// A run-review URL (.../flows/{id}/runs/{runId}) is read-only — Code View must never be
+// injected there. In practice findControlsContainer()/probeDesignerStore() likely already
+// fail to find a live editable canvas on such pages, but this is kept as a cheap extra guard.
 function isPowerAutomateRunView(): boolean {
   return window.location.pathname.includes('/runs/') || window.location.href.includes('/runs/');
 }
@@ -1560,7 +1570,7 @@ function teardown(): void {
   document.getElementById(PA_V3_CONTROL_BUTTON_ID)?.remove();
 }
 
-type DetectionState = 'off-host' | 'off-route' | 'run-view' | 'waiting-controls' | 'waiting-store' | 'ready';
+type DetectionState = 'off-host' | 'run-view' | 'waiting-controls' | 'waiting-store' | 'ready';
 let lastLoggedState: DetectionState | null = null;
 
 function logDetectionState(state: DetectionState, extra?: Record<string, unknown>): void {
@@ -1572,12 +1582,6 @@ function logDetectionState(state: DetectionState, extra?: Record<string, unknown
 async function tick(): Promise<void> {
   if (!isPowerPlatformMakerHost()) {
     logDetectionState('off-host');
-    teardown();
-    return;
-  }
-
-  if (!looksLikeFlowDesignerRoute()) {
-    logDetectionState('off-route');
     teardown();
     return;
   }

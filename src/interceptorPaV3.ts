@@ -1,5 +1,8 @@
-// Runs in MAIN world at document_start, on make.powerautomate.com / make.powerapps.com only
-// (see manifest.json — this content script is never matched on copilotstudio.microsoft.com).
+// Runs in MAIN world at document_start, on make.powerautomate.com / make.powerapps.com /
+// copilotstudio.microsoft.com (see manifest.json) — the classic Copilot Studio flow canvas
+// embeds the same designerHostContextStore-backed v3 designer component as Power Automate
+// (confirmed live via the Fiber walk below: identical store shape on both hosts), so this
+// file carries no host check of its own and works unmodified on either.
 //
 // Fully parallel to interceptor.ts: separate file, separate bundle, separate message
 // namespace (MWT_PA_V3_*). Does not import from or reference interceptor.ts in any way.
