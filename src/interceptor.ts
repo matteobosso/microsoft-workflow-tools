@@ -248,32 +248,67 @@ function mwtGetReactFiber(node: HTMLElement): unknown {
   return (node as any)[fiberKey];
 }
 
-function mwtFindNativeSetGraph(): (graph: unknown, opts: unknown) => void {
-  const node = mwtGetCanvasNode();
-  if (!node) throw new Error('Canvas node not found');
-  const fiber = mwtGetReactFiber(node);
-  let current: any = fiber;
+// A native graph state pairs the live graph with its setGraph mutator. Preferring a single
+// combined object (when one is exposed) over resolving graph and setGraph independently
+// guarantees Apply never mixes a current graph from one fiber/hook with a setGraph pulled
+// from another — the two are read from the exact same resolution pass.
+interface MwtNativeGraphState {
+  graph: Record<string, unknown>;
+  setGraph: (graph: unknown, opts?: unknown) => void;
+}
+
+function mwtIsCombinedGraphState(candidate: any): candidate is MwtNativeGraphState {
+  return !!candidate
+    && typeof candidate === 'object'
+    && candidate.graph
+    && typeof candidate.graph === 'object'
+    && Array.isArray(candidate.graph.nodes)
+    && Array.isArray(candidate.graph.edges)
+    && typeof candidate.setGraph === 'function';
+}
+
+function mwtFindCombinedGraphState(fiberRoot: any): MwtNativeGraphState | null {
+  let current: any = fiberRoot;
   while (current) {
     let hook: any = current.memoizedState;
     while (hook) {
-      for (const candidate of [hook.memoizedState?.inst?.value, hook.baseState?.inst?.value]) {
-        if (typeof candidate === 'function' && candidate.name === 'setGraph') {
-          mwtLog('[MWT_PAGE_BRIDGE]', { event: 'setGraph-found' });
-          return candidate;
-        }
+      for (const candidate of [
+        hook.memoizedState,
+        hook.baseState,
+        hook.memoizedState?.current,
+        hook.baseState?.current,
+        hook.memoizedState?.inst?.value,
+        hook.baseState?.inst?.value,
+      ]) {
+        if (mwtIsCombinedGraphState(candidate)) return candidate;
       }
       hook = hook.next;
     }
     current = current.return;
   }
-  throw new Error('Native setGraph not found in Fiber');
+  return null;
 }
 
-function mwtFindCurrentGraph(): Record<string, unknown> {
-  const node = mwtGetCanvasNode();
-  if (!node) throw new Error('Canvas node not found');
-  const fiber = mwtGetReactFiber(node);
-  let current: any = fiber;
+// Legacy dual-hook resolution — the original, proven-working mechanism. Kept as a fallback
+// for builds where graph and setGraph are exposed as two independent selector-hooks rather
+// than one combined state object.
+function mwtFindLegacySetGraph(fiberRoot: any): ((graph: unknown, opts: unknown) => void) | null {
+  let current: any = fiberRoot;
+  while (current) {
+    let hook: any = current.memoizedState;
+    while (hook) {
+      for (const candidate of [hook.memoizedState?.inst?.value, hook.baseState?.inst?.value]) {
+        if (typeof candidate === 'function' && candidate.name === 'setGraph') return candidate;
+      }
+      hook = hook.next;
+    }
+    current = current.return;
+  }
+  return null;
+}
+
+function mwtFindLegacyCurrentGraph(fiberRoot: any): Record<string, unknown> | null {
+  let current: any = fiberRoot;
   while (current) {
     let hook: any = current.memoizedState;
     while (hook) {
@@ -299,27 +334,88 @@ function mwtFindCurrentGraph(): Record<string, unknown> {
     }
     current = current.return;
   }
-  throw new Error('Current graph not found in Fiber');
+  return null;
 }
 
-async function mwtFindNativeSetGraphWithRetry(timeoutMs = 3000): Promise<(graph: unknown, opts: unknown) => void> {
+function mwtFindNativeGraphState(): MwtNativeGraphState {
+  const node = mwtGetCanvasNode();
+  if (!node) throw new Error('Canvas node not found');
+  const fiber = mwtGetReactFiber(node);
+
+  const combined = mwtFindCombinedGraphState(fiber);
+  if (combined) {
+    mwtLog('[MWT_PAGE_BRIDGE]', {
+      event: 'native-graph-state-found',
+      mode: 'combined',
+      nodeCount: (combined.graph.nodes as any[])?.length,
+      edgeCount: (combined.graph.edges as any[])?.length,
+    });
+    return combined;
+  }
+
+  const setGraph = mwtFindLegacySetGraph(fiber);
+  const graph = mwtFindLegacyCurrentGraph(fiber);
+  if (setGraph && graph) {
+    mwtLog('[MWT_PAGE_BRIDGE]', {
+      event: 'native-graph-state-found',
+      mode: 'legacy-dual-hook',
+      nodeCount: (graph.nodes as any[])?.length,
+      edgeCount: (graph.edges as any[])?.length,
+    });
+    return { graph, setGraph };
+  }
+
+  throw new Error('Native Copilot canvas graph state not found. Cannot safely apply visual graph.');
+}
+
+async function mwtFindNativeGraphStateWithRetry(timeoutMs = 3000): Promise<MwtNativeGraphState> {
   const started = Date.now();
   let lastErr: unknown;
   while (Date.now() - started < timeoutMs) {
-    try { return mwtFindNativeSetGraph(); } catch (e) { lastErr = e; }
+    try { return mwtFindNativeGraphState(); } catch (e) { lastErr = e; }
     await new Promise<void>(resolve => setTimeout(resolve, 150));
   }
-  throw new Error(`setGraph not found after ${timeoutMs}ms: ${lastErr}`);
+  throw new Error(`Native Copilot canvas graph state not found after ${timeoutMs}ms: ${lastErr}`);
 }
 
-async function mwtFindCurrentGraphWithRetry(timeoutMs = 3000): Promise<Record<string, unknown>> {
-  const started = Date.now();
-  let lastErr: unknown;
-  while (Date.now() - started < timeoutMs) {
-    try { return mwtFindCurrentGraph(); } catch (e) { lastErr = e; }
-    await new Promise<void>(resolve => setTimeout(resolve, 150));
+// Kept as thin wrappers: mwtCsVerifyGraphApplied reads only the current graph, on the
+// existing synchronous (non-retry) contract.
+function mwtFindCurrentGraph(): Record<string, unknown> {
+  return mwtFindNativeGraphState().graph;
+}
+
+// Fails closed: throws rather than applying a graph that doesn't reference real nodes, or
+// silently proceeding with a partially-shaped object.
+function mwtValidateGraphOrThrow(graph: any): asserts graph is { name?: string; nodes: any[]; edges: any[]; connectionReferences?: Record<string, unknown> } {
+  if (!graph || typeof graph !== 'object') {
+    throw new Error('Invalid Copilot graph: graph is not an object');
   }
-  throw new Error(`Current graph not found after ${timeoutMs}ms: ${lastErr}`);
+  if (!Array.isArray(graph.nodes)) {
+    throw new Error('Invalid Copilot graph: graph.nodes is not an array');
+  }
+  if (!Array.isArray(graph.edges)) {
+    throw new Error('Invalid Copilot graph: graph.edges is not an array');
+  }
+
+  const nodeIds = new Set<string>();
+  for (const node of graph.nodes) {
+    const id = node?.id;
+    if (typeof id !== 'string' || !id) {
+      throw new Error('Invalid Copilot graph: node without a valid id');
+    }
+    if (nodeIds.has(id)) {
+      throw new Error(`Invalid Copilot graph: duplicate node id "${id}"`);
+    }
+    nodeIds.add(id);
+  }
+
+  for (const edge of graph.edges) {
+    const source = String(edge?.source ?? '');
+    const target = String(edge?.target ?? '');
+    if (!nodeIds.has(source) || !nodeIds.has(target)) {
+      throw new Error(`Invalid Copilot graph: edge "${source || '?'}" -> "${target || '?'}" references a missing node`);
+    }
+  }
 }
 
 function mwtBuildFullGraph(
@@ -343,9 +439,15 @@ function mwtBuildFullGraph(
 
 async function mwtApplyGraphToCanvas(incomingGraph: unknown): Promise<{ nodeCount: number; edgeCount: number }> {
   const incoming = incomingGraph as any;
-  const currentGraph = await mwtFindCurrentGraphWithRetry();
+  mwtValidateGraphOrThrow(incoming);
+
+  // Single resolution pass: currentGraph and setGraph are guaranteed to come from the same
+  // native state object (or the same legacy dual-hook lookup), never from two independent
+  // — and potentially mismatched — fiber walks.
+  const nativeState = await mwtFindNativeGraphStateWithRetry();
+  const currentGraph = nativeState.graph;
   const nextGraph = mwtBuildFullGraph(incoming, currentGraph);
-  const setGraph = await mwtFindNativeSetGraphWithRetry();
+  mwtValidateGraphOrThrow(nextGraph);
 
   const nextNodes: any[] = nextGraph.nodes as any[];
   const nextEdges: any[] = nextGraph.edges as any[];
@@ -357,7 +459,7 @@ async function mwtApplyGraphToCanvas(incomingGraph: unknown): Promise<{ nodeCoun
     nextEdgeCount: nextEdges.length,
   });
 
-  setGraph(nextGraph, { source: 'user' });
+  nativeState.setGraph(nextGraph, { source: 'user' });
 
   mwtLog('[MWT_PAGE_BRIDGE]', {
     event: 'apply-completed',
@@ -1148,22 +1250,39 @@ let _mwtCsOriginalSnapshot: unknown = null;
 
 // ── Visual readback ───────────────────────────────────────────────────────────
 
+// Edge identity is (source -> target): edges in this graph shape aren't guaranteed to carry
+// a stable "id" field, so comparing by endpoint pair is the only check that can't silently
+// pass on a graph with the right node count but rewired connections.
+function mwtEdgeKey(edge: any): string {
+  return `${edge?.source ?? ''}->${edge?.target ?? ''}`;
+}
+
 async function mwtCsVerifyGraphApplied(expectedGraph: any, timeoutMs: number): Promise<boolean> {
-  const expectedIds = new Set<string>(
+  const expectedNodeIds = new Set<string>(
     (Array.isArray(expectedGraph?.nodes) ? expectedGraph.nodes : []).map((n: any) => String(n?.id ?? ''))
   );
+  const expectedEdgeKeys = new Set<string>(
+    (Array.isArray(expectedGraph?.edges) ? expectedGraph.edges : []).map(mwtEdgeKey)
+  );
+
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     try {
       const current = mwtFindCurrentGraph();
-      const currentIds = new Set<string>(
-        ((current.nodes as any[]) ?? []).map(n => String(n?.id ?? ''))
-      );
-      if (currentIds.size === expectedIds.size) {
-        let allMatch = true;
-        expectedIds.forEach(id => { if (!currentIds.has(id)) allMatch = false; });
-        if (allMatch) return true;
-      }
+      const currentNodes = (current.nodes as any[]) ?? [];
+      const currentEdges = (current.edges as any[]) ?? [];
+      const currentNodeIds = new Set<string>(currentNodes.map(n => String(n?.id ?? '')));
+      const currentEdgeKeys = new Set<string>(currentEdges.map(mwtEdgeKey));
+
+      const nodesMatch =
+        currentNodeIds.size === expectedNodeIds.size &&
+        [...expectedNodeIds].every(id => currentNodeIds.has(id));
+
+      const edgesMatch =
+        currentEdgeKeys.size === expectedEdgeKeys.size &&
+        [...expectedEdgeKeys].every(key => currentEdgeKeys.has(key));
+
+      if (nodesMatch && edgesMatch) return true;
     } catch {}
     await new Promise<void>(resolve => setTimeout(resolve, 150));
   }

@@ -1,6 +1,6 @@
 {
   "name": "microsoft-workflow-tools",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Chrome/Edge extension to view and edit Power Automate and Copilot Studio workflow definitions as JSON.",
   "main": "dist/app.js",
   "scripts": {

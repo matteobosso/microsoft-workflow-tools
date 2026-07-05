@@ -1,7 +1,7 @@
 {
    "name": "Microsoft Workflow Tools",
    "description": "Edit Power Automate and Copilot Studio workflow definitions as JSON.",
-   "version": "2.1",
+   "version": "2.2",
    "manifest_version": 3,
    "icons": {
       "512": "icons/pa-tools-512.png",

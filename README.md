@@ -73,20 +73,61 @@ the designer's own native **Save draft** button.
 
 ## Known limitations
 
-- **Copilot Studio:** the captured token (used only by the explicit **Validate**
-  action) is not refreshed automatically. If validation fails, refresh the workflow
+- **Copilot Studio:** the captured token is used only by the explicit **Validate**
+  action, which calls the Copilot Studio `checkFlowAlerts` API. The normal **Load**
+  and **Apply to canvas** paths do not use tokens and do not call backend APIs. The
+  token is not refreshed automatically — if validation fails, refresh the workflow
   tab that was used to open the extension, then retry.
-- **Copilot Studio:** editing the executable `actions`/`triggers` does not
-  automatically update the duplicated config in the canvas graph
-  (`metadata.associatedData.graph`); the designer reconciles the visual layout when
-  reopened.
-- **Copilot Studio & Power Automate v3:** Apply to canvas only updates the live
-  in-memory designer state and marks the draft dirty — saving/publishing is
-  deliberately left to the native **Save**/**Save draft**/**Publish** controls.
+- **Copilot Studio:** Code View reads the executable Workflow Definition Language
+  (WDL) from the live in-page `clientdata` / React Query state. The visual canvas
+  graph is stored separately inside the trigger metadata at
+  `definition.triggers[triggerName].metadata.associatedData.graph` and is applied to
+  the open canvas through the native `setGraph(...)` bridge.
+- **Copilot Studio:** direct edits made in the visual canvas may not always be
+  immediately reflected in Code View when reopening the panel. The designer keeps
+  two related but distinct layers in memory:
+  - executable WDL: `definition.triggers`, `definition.actions`, `runAfter`, nested
+    branch actions, connection references;
+  - visual graph metadata: `metadata.associatedData.graph`, `nodes`, `edges`, layout
+    and canvas-only metadata.
+
+  Code View treats the executable WDL from `clientdata` as the source of truth for
+  runtime behavior. The visual graph is used to update the canvas layout, but it is
+  not used to reconstruct or infer executable `actions`. If the Copilot Studio
+  designer updates the visual graph before updating the corresponding WDL/clientdata
+  branch, Code View may temporarily show a definition that is not fully aligned with
+  the latest visual canvas state. Use the native **Save** / reopen workflow cycle if
+  full reconciliation is required before editing JSON.
+- **Copilot Studio:** editing only the visual graph (`nodes` / `edges`) can update
+  the canvas layout, but it does not by itself change workflow execution. To change
+  runtime behavior, the corresponding WDL sections must also be updated:
+  `definition.actions`, `definition.triggers`, `runAfter`, nested `else.actions`, and
+  `nodeActionMapping` where applicable.
+- **Copilot Studio & Power Automate v3:** **Apply to canvas** only updates the live
+  in-memory designer state and marks the draft dirty where supported. Persisting
+  changes is deliberately left to the native **Save**/**Save draft**/**Publish**
+  controls.
 - This is a power-user tool intended for use on your own tenant/account, in line with
   Microsoft's terms of service.
 
 ## Change Log
+
+### v2.2 — Copilot Studio native graph bridge hardening
+
+- Hardened the Copilot Studio visual canvas bridge by resolving the native graph
+  state and `setGraph` together from React Fiber in a single pass, instead of
+  treating the graph and the setter as two independently-resolved hook values that
+  could drift out of sync with each other.
+- Added graph validation before visual apply: node/edge arrays, unique node IDs, and
+  edge source/target consistency — Apply now fails explicitly instead of silently
+  writing a malformed graph.
+- Strengthened visual apply readback to verify edges as well as node IDs, so a
+  rewired graph is no longer accepted as successful based on node count alone.
+- Documented an important Copilot Studio limitation: Code View uses live
+  `clientdata` as the source of truth for executable WDL, while the native canvas
+  graph is a separate visual layer. Direct canvas edits may temporarily leave the
+  visual graph and executable WDL out of sync until the designer reconciles or the
+  workflow is saved/reopened.
 
 ### v2.1 — Copilot Studio live store bridge
 
