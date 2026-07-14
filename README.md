@@ -56,6 +56,9 @@ the designer's own native **Save draft** button.
 
 ## Getting started (load unpacked)
 
+**Requirements:** Node.js 20.x and npm (the versions used by the official CI
+build in `.github/workflows/build.yml`).
+
 1. Run `npm install` then `npm run build` (output goes to `dist/`).
 2. Open `edge://extensions` (or `chrome://extensions`) and enable **Developer mode**.
 3. Click **Load unpacked** and select the `dist/` folder.
